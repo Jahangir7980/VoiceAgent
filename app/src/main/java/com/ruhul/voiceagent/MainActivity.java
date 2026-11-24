@@ -92,7 +92,7 @@ public class MainActivity extends Activity {
         instrField.setMinLines(2);
         root.addView(instrField);
         shotsBox = new CheckBox(this);
-        shotsBox.setText("স্ক্রিনের ছবিও Gemini-কে পাঠাও (ভালো বোঝে, একটু বেশি ডেটা লাগে)");
+        shotsBox.setText("📱 স্ক্রিন শেয়ার চালু (AI আপনার স্ক্রিন দেখে বুঝবে। বন্ধ রাখলে শুধু স্ক্রিনের লেখা পড়বে)");
         shotsBox.setChecked(Prefs.screenshots(this));
         root.addView(shotsBox);
         root.addView(button("সেভ করুন", v -> {
