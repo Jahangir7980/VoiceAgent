@@ -75,6 +75,12 @@ public class AgentService extends AccessibilityService {
     private volatile boolean cancel = false;
     private int taskId = 0;
 
+    /** Autopilot = keep working on the task until the user long-presses the mic. */
+    private volatile boolean autopilot = false;
+    private static final int AUTOPILOT_MAX_STEPS = 400;
+    private String lastCommand = "";
+    private int idleRounds = 0;
+
     // ---------------------------------------------------------------- lifecycle
 
     @Override
@@ -203,6 +209,7 @@ public class AgentService extends AccessibilityService {
 
     private void stopTask() {
         cancel = true;
+        autopilot = false;
         taskId++;
         busy = false;
         if (tts != null) tts.stop();
@@ -218,8 +225,55 @@ public class AgentService extends AccessibilityService {
         String cmd = cleanCommand(raw);
         toast("আপনি: " + raw);
         if (cmd.isEmpty()) { setState(COLOR_IDLE, "🎤"); return; }
+        if (handleModeCommand(cmd)) return;
+        autopilot = false;
         if (tryLocal(cmd)) { setState(COLOR_IDLE, "🎤"); return; }
+        lastCommand = cmd;
         runAgent(cmd);
+    }
+
+    /** Autopilot, "continue", and standing-instruction commands. Returns true if handled. */
+    private boolean handleModeCommand(String cmd) {
+        String c = cmd.toLowerCase(Locale.ROOT);
+
+        // Standing instructions: "এখন থেকে ... এভাবে ভাববে / উত্তর দেবে"
+        if (has(c, "নির্দেশনা মুছ", "নির্দেশ মুছ", "clear instruction", "আগের নিয়ম বাদ")) {
+            Prefs.setInstructions(this, "");
+            say("আপনার আগের নির্দেশনা মুছে দিলাম।");
+            setState(COLOR_IDLE, "🎤");
+            return true;
+        }
+        if (has(c, "এখন থেকে", "সবসময়", "সব সময়", "from now on", "always ")) {
+            String old = Prefs.instructions(this);
+            String merged = old.isEmpty() ? cmd : old + "\n" + cmd;
+            if (merged.length() > 1500) merged = merged.substring(merged.length() - 1500);
+            Prefs.setInstructions(this, merged);
+            say("ঠিক আছে, এখন থেকে এভাবেই করবো।");
+            setState(COLOR_IDLE, "🎤");
+            return true;
+        }
+
+        boolean autoWords = has(c, "অটো পাইলট", "অটোপাইলট", "autopilot", "auto pilot",
+                "করেই যাও", "করতে থাকো", "চালিয়ে যাও", "চালাতে থাকো", "থামবে না", "keep going", "keep doing");
+        boolean continueOnly = has(c, "কন্টিনিউ", "continue", "চালিয়ে যাও", "আবার করো", "আগের কাজ");
+        if (autoWords || continueOnly) {
+            // Strip the mode words; whatever remains is the task (or reuse the last task).
+            String task = cmd.replaceAll("(?i)(অটো ?পাইলট( মোড)?( অন| চালু)?( করো)?|auto ?pilot( mode)?( on)?|এভাবে|এইভাবে|ওইভাবে|"
+                    + "করেই যাও|করতে থাকো|চালিয়ে যাও|চালাতে থাকো|থামবে না|কন্টিনিউ( করো)?|continue|keep going|keep doing|"
+                    + "আবার করো|আগের কাজ(টা)?)", " ").replaceAll("[,।.!]", " ").replaceAll("\\s+", " ").trim();
+            if (task.length() < 3) task = lastCommand;
+            if (task == null || task.isEmpty()) {
+                say("কোন কাজটা চালিয়ে যাবো, সেটা বলুন।");
+                setState(COLOR_IDLE, "🎤");
+                return true;
+            }
+            lastCommand = task;
+            autopilot = autoWords;
+            if (autopilot) say("অটো পাইলট চালু। থামাতে মাইকে লম্বা চাপ দিন।");
+            runAgent(task);
+            return true;
+        }
+        return false;
     }
 
     private static String cleanCommand(String s) {
@@ -442,6 +496,9 @@ public class AgentService extends AccessibilityService {
             + "payment, deleting, buying), do not do it: ask in 'say' and set done=true.\n"
             + "- Never type passwords, OTPs, PINs or card numbers. Ask the user to do that part.\n"
             + "- If you are stuck or the element is not there, try scrolling once, otherwise explain in 'say' with done=true.\n"
+            + "- If the user asks a question about what is on the screen (a question, quiz, text, image, video), "
+            + "read the screen/screenshot carefully, think it through, and answer in 'say'. If they asked you to "
+            + "also select/type the answer, do that with actions.\n"
             + "- 'say' must be short, natural Bengali. While working you may leave it empty.";
 
     private void runAgent(String command) {
@@ -453,6 +510,7 @@ public class AgentService extends AccessibilityService {
         }
         busy = true;
         cancel = false;
+        idleRounds = 0;
         final int myTask = ++taskId;
         setState(COLOR_THINK, "⏳");
         step(myTask, command, new ArrayList<>(), 0);
@@ -460,7 +518,7 @@ public class AgentService extends AccessibilityService {
 
     private void step(int myTask, String command, List<String> done, int n) {
         if (cancel || myTask != taskId) return;
-        if (n >= MAX_STEPS) { finishTask(myTask, command, "কাজটা পুরো শেষ করতে পারলাম না। আরেকটু সহজ করে বলবেন?"); return; }
+        if (n >= (autopilot ? AUTOPILOT_MAX_STEPS : MAX_STEPS)) { finishTask(myTask, command, "কাজটা পুরো শেষ করতে পারলাম না। আরেকটু সহজ করে বলবেন?"); return; }
 
         final String screen = dumpScreen();
         if (Prefs.screenshots(this) && Build.VERSION.SDK_INT >= 30) {
@@ -474,6 +532,16 @@ public class AgentService extends AccessibilityService {
     private void think(int myTask, String command, List<String> done, int n, String screen, String img) {
         if (cancel || myTask != taskId) return;
         StringBuilder u = new StringBuilder();
+        String instr = Prefs.instructions(this);
+        if (!instr.isEmpty()) {
+            u.append("The user's standing instructions (follow them in how you think and answer):\n")
+                    .append(instr).append("\n\n");
+        }
+        if (autopilot) {
+            u.append("AUTOPILOT MODE IS ON: keep working on the task continuously and repeat it when one round "
+                    + "finishes (e.g. next video, next item, next question). Do NOT set done=true unless the task is "
+                    + "truly impossible or needs the user. The user stops you manually.\n\n");
+        }
         if (!chat.isEmpty()) {
             u.append("Recent conversation:\n");
             for (String line : chat) u.append(line).append('\n');
@@ -528,9 +596,18 @@ public class AgentService extends AccessibilityService {
 
         if (!finished && !sayText.isEmpty()) toast(sayText);
 
+        if (autopilot) {
+            idleRounds = count == 0 ? idleRounds + 1 : 0;
+            if (finished && !sayText.isEmpty()) say(sayText);
+            // Keep the history short so long autopilot runs don't grow the prompt forever.
+            while (done.size() > 15) done.remove(0);
+        }
+
         runActions(myTask, actions, 0, done, () -> {
             if (cancel || myTask != taskId) return;
-            if (finished || count == 0) {
+            if (autopilot && idleRounds < 3) {
+                main.postDelayed(() -> step(myTask, command, done, n + 1), finished ? 2500 : 1300);
+            } else if (finished || count == 0) {
                 finishTask(myTask, command, sayText);
             } else {
                 main.postDelayed(() -> step(myTask, command, done, n + 1), 1300);

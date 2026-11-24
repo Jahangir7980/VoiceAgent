@@ -29,7 +29,7 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     private TextView status;
-    private EditText keyField, modelField, langField, testField;
+    private EditText keyField, modelField, langField, testField, instrField;
     private CheckBox shotsBox;
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -85,6 +85,12 @@ public class MainActivity extends Activity {
         root.addView(note("কথা শোনার ভাষা (bn-BD = বাংলা বাংলাদেশ, bn-IN = বাংলা ভারত, en-US = ইংরেজি):"));
         langField = field("ভাষা", Prefs.lang(this));
         root.addView(langField);
+        root.addView(note("আপনার নিজের নির্দেশনা: AI কীভাবে ভাববে বা উত্তর দেবে। মুখে \"এখন থেকে …\" বললেও এখানে যোগ হয়ে যায়:"));
+        instrField = new EditText(this);
+        instrField.setHint("যেমন: সবসময় ছোট করে বাংলায় উত্তর দেবে");
+        instrField.setText(Prefs.instructions(this));
+        instrField.setMinLines(2);
+        root.addView(instrField);
         shotsBox = new CheckBox(this);
         shotsBox.setText("স্ক্রিনের ছবিও Gemini-কে পাঠাও (ভালো বোঝে, একটু বেশি ডেটা লাগে)");
         shotsBox.setChecked(Prefs.screenshots(this));
@@ -104,7 +110,14 @@ public class MainActivity extends Activity {
                 + "  \"রহিমকে কল করো\"  •  \"পুলিশকে কল করো\"\n"
                 + "  \"এই বক্সে লেখো আমি আসছি, তারপর সেন্ড চাপো\"\n"
                 + "  \"Next বাটনে চাপ দাও\"  •  \"দ্বিতীয় অপশনটা সিলেক্ট করো\"\n"
-                + "  \"ইউটিউবে বাংলা নাটক সার্চ করো\""));
+                + "  \"ইউটিউবে বাংলা নাটক সার্চ করো\"\n\n"
+                + "স্ক্রিন দেখে প্রশ্নের উত্তর:\n"
+                + "  \"স্ক্রিনের প্রশ্নটা পড়ে উত্তর দাও\"  •  \"সঠিক উত্তরটা সিলেক্ট করে নেক্সট চাপো\"\n\n"
+                + "অটো পাইলট (না থামানো পর্যন্ত চলবে, থামাতে লম্বা চাপ):\n"
+                + "  \"অটো পাইলট: প্রতিটা প্রশ্নের উত্তর দিয়ে নেক্সট চাপতে থাকো\"\n"
+                + "  \"এভাবেই করে যাও\"  •  \"কন্টিনিউ করো\" (আগের কাজ আবার)\n\n"
+                + "নিজের নিয়ম:\n"
+                + "  \"এখন থেকে সবসময় ছোট করে উত্তর দেবে\"  •  \"নির্দেশনা মুছে দাও\""));
 
         // Test box
         root.addView(heading("টেস্ট (মুখে না বলে লিখে চালান)"));
@@ -143,6 +156,7 @@ public class MainActivity extends Activity {
         Prefs.save(this, keyField.getText().toString(), modelField.getText().toString(),
                 langField.getText().toString().trim().isEmpty() ? Prefs.DEFAULT_LANG : langField.getText().toString().trim(),
                 shotsBox.isChecked());
+        Prefs.setInstructions(this, instrField.getText().toString());
     }
 
     private void showModels() {

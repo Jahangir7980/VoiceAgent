@@ -5,7 +5,7 @@ import android.content.SharedPreferences;
 
 /** Small wrapper around saved settings. */
 public final class Prefs {
-    public static final String DEFAULT_MODEL = "gemini-flash-latest";
+    public static final String DEFAULT_MODEL = "gemini-3.1-flash-lite";
     public static final String DEFAULT_LANG = "bn-BD";
 
     private Prefs() {}
@@ -22,6 +22,10 @@ public final class Prefs {
     }
     public static String lang(Context c) { return sp(c).getString("lang", DEFAULT_LANG); }
     public static boolean screenshots(Context c) { return sp(c).getBoolean("shots", true); }
+
+    /** The user's own standing instructions ("think like this…"). */
+    public static String instructions(Context c) { return sp(c).getString("instr", "").trim(); }
+    public static void setInstructions(Context c, String s) { sp(c).edit().putString("instr", s.trim()).apply(); }
 
     public static void save(Context c, String key, String model, String lang, boolean shots) {
         sp(c).edit()
