@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.ruhul.voiceagent'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.ruhul.voiceagent"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    // Fixed key so every new build installs over the old one.
+    signingConfigs {
+        agent {
+            storeFile file('agent.keystore')
+            storePassword 'voiceagent'
+            keyAlias 'agent'
+            keyPassword 'voiceagent'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.agent
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.agent
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

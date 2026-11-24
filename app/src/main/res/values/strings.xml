@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Voice Agent</string>
+    <string name="service_name">Voice Agent সহকারী</string>
+    <string name="service_desc">এটা চালু করলে Voice Agent আপনার কথামতো ফোনে লিখতে, বাটনে চাপ দিতে, অ্যাপ খুলতে আর স্ক্রল করতে পারবে। স্ক্রিনের লেখা ও ছবি শুধু আপনার নিজের Gemini API-তে পাঠানো হয়।</string>
+</resources>
