@@ -82,6 +82,7 @@ public class MainActivity extends Activity {
         modelField = field("মডেল", Prefs.model(this));
         root.addView(modelField);
         root.addView(button("মডেল তালিকা দেখাও", v -> showModels()));
+        root.addView(button("✅ Gemini টেস্ট করো (key আর মডেল ঠিক আছে কিনা)", v -> testGemini()));
         root.addView(note("কথা শোনার ভাষা (bn-BD = বাংলা বাংলাদেশ, bn-IN = বাংলা ভারত, en-US = ইংরেজি):"));
         langField = field("ভাষা", Prefs.lang(this));
         root.addView(langField);
@@ -157,6 +158,39 @@ public class MainActivity extends Activity {
                 langField.getText().toString().trim().isEmpty() ? Prefs.DEFAULT_LANG : langField.getText().toString().trim(),
                 shotsBox.isChecked());
         Prefs.setInstructions(this, instrField.getText().toString());
+    }
+
+    private void testGemini() {
+        save();
+        String key = Prefs.apiKey(this), model = Prefs.model(this);
+        if (key.isEmpty()) { Toast.makeText(this, "আগে API key দিন", Toast.LENGTH_SHORT).show(); return; }
+        Toast.makeText(this, "Gemini-কে জিজ্ঞাসা করছি…", Toast.LENGTH_SHORT).show();
+        final long start = System.currentTimeMillis();
+        new Thread(() -> {
+            String title, body;
+            try {
+                String ans = Gemini.generate(key, model,
+                        "Reply ONLY with JSON: {\"say\":\"...\"}",
+                        "বাংলায় এক লাইনে বলো: তুমি কাজ করছো।", null);
+                long ms = System.currentTimeMillis() - start;
+                title = "✅ Gemini কাজ করছে";
+                body = "মডেল: " + model + "\nসময় লাগলো: " + (ms / 1000.0) + " সেকেন্ড\n\nউত্তর: " + ans;
+            } catch (Gemini.ApiException e) {
+                title = "❌ Gemini error " + e.code;
+                String hint;
+                if (e.code == 404) hint = "মডেলের নাম ভুল। 'মডেল তালিকা দেখাও' থেকে একটা বেছে নিন।";
+                else if (e.code == 400 || e.code == 403) hint = "API key ভুল বা বন্ধ। aistudio.google.com/apikey থেকে নতুন key নিন।";
+                else if (e.code == 429) hint = "আজকের ফ্রি সীমা শেষ, বা খুব দ্রুত চাওয়া হয়েছে। অন্য মডেল বেছে দেখুন বা পরে চেষ্টা করুন।";
+                else hint = "Google-এর সার্ভার ব্যস্ত। অন্য মডেল (flash-lite / flash) বেছে আবার টেস্ট করুন।";
+                body = hint + "\n\nবিস্তারিত: " + Gemini.shortReason(e);
+            } catch (Exception e) {
+                title = "❌ সংযোগ সমস্যা";
+                body = "ইন্টারনেট দেখে নিন।\n\n" + e;
+            }
+            final String t = title, b = body;
+            main.post(() -> new AlertDialog.Builder(this).setTitle(t).setMessage(b)
+                    .setPositiveButton("ঠিক আছে", null).show());
+        }).start();
     }
 
     private void showModels() {

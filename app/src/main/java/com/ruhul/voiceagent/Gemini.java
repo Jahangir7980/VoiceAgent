@@ -23,9 +23,46 @@ public final class Gemini {
 
     private Gemini() {}
 
-    /** Sends one request and returns the model's text answer. imageJpegB64 may be null. */
+    /** Set to false once a model rejects the thinkingConfig field. */
+    private static volatile boolean useThinkingConfig = true;
+
+    /**
+     * Sends a request and returns the model's text answer. imageJpegB64 may be null.
+     * Retries once on temporary server errors (500/503/empty answer).
+     */
     public static String generate(String apiKey, String model, String system,
                                   String userText, String imageJpegB64) throws Exception {
+        try {
+            return generateOnce(apiKey, model, system, userText, imageJpegB64);
+        } catch (ApiException e) {
+            if (e.code == 400 && useThinkingConfig && e.getMessage() != null
+                    && e.getMessage().toLowerCase().contains("thinking")) {
+                useThinkingConfig = false;   // this model doesn't accept it; try plain request
+                return generateOnce(apiKey, model, system, userText, imageJpegB64);
+            }
+            if (e.code == 0 || e.code == 500 || e.code == 502 || e.code == 503 || e.code == 504) {
+                Thread.sleep(1500);
+                return generateOnce(apiKey, model, system, userText, imageJpegB64);
+            }
+            throw e;
+        } catch (java.net.SocketTimeoutException e) {
+            return generateOnce(apiKey, model, system, userText, imageJpegB64);
+        }
+    }
+
+    /** Short human-readable reason taken from a Gemini error body. */
+    public static String shortReason(Exception e) {
+        String m = e.getMessage() == null ? "" : e.getMessage();
+        try {
+            JSONObject err = new JSONObject(m).optJSONObject("error");
+            if (err != null) m = err.optString("status", "") + ": " + err.optString("message", "");
+        } catch (Exception ignored) { }
+        m = m.replace('\n', ' ');
+        return m.length() > 160 ? m.substring(0, 160) + "…" : m;
+    }
+
+    private static String generateOnce(String apiKey, String model, String system,
+                                       String userText, String imageJpegB64) throws Exception {
         JSONObject body = new JSONObject();
 
         JSONObject sys = new JSONObject();
@@ -48,13 +85,19 @@ public final class Gemini {
         JSONObject gen = new JSONObject();
         gen.put("responseMimeType", "application/json");
         gen.put("temperature", 0.2);
+        if (useThinkingConfig) {
+            // Less "thinking" = much faster answers for simple phone actions.
+            gen.put("thinkingConfig", new JSONObject().put("thinkingLevel", "low"));
+        }
         body.put("generationConfig", gen);
 
         String resp = http("POST", BASE + "models/" + model + ":generateContent", apiKey, body.toString());
         JSONObject json = new JSONObject(resp);
         JSONArray cands = json.optJSONArray("candidates");
         if (cands == null || cands.length() == 0) {
-            throw new ApiException(0, "Empty answer: " + resp);
+            JSONObject fb = json.optJSONObject("promptFeedback");
+            String why = fb != null ? fb.optString("blockReason", "no answer") : "no answer";
+            throw new ApiException(0, "Empty answer (" + why + ")");
         }
         JSONObject c0 = cands.getJSONObject(0).optJSONObject("content");
         if (c0 == null) throw new ApiException(0, "No content");
@@ -96,7 +139,7 @@ public final class Gemini {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setRequestMethod(method);
         c.setConnectTimeout(20000);
-        c.setReadTimeout(90000);
+        c.setReadTimeout(40000);
         c.setRequestProperty("x-goog-api-key", apiKey);
         if (body != null) {
             c.setDoOutput(true);

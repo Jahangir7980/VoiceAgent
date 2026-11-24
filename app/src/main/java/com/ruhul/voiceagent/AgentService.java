@@ -364,11 +364,20 @@ public class AgentService extends AccessibilityService {
             if (digits.replace("+", "").length() >= 3) { callNumber(digits); return true; }
             String name = c.replaceAll("(কল|ফোন|করো|কর|দাও|দেও|call|dial|ডায়াল|একটা|একটু|প্লিজ|please|এর কাছে|নাম্বারে|নম্বরে|to)", " ")
                     .trim();
-            name = name.replaceAll("(কে|রে|এ)$", "").replaceAll("\\s+", " ").trim();
+            name = name.replaceAll("\\s+", " ").trim().replaceAll("(কে|রে|এর|এ)$", "").trim();
             if (name.isEmpty()) return false;
-            String num = findContactNumber(name);
-            if (num != null) { say(name + " কে কল করছি"); callNumber(num); return true; }
-            return false; // let the AI try a Latin-spelled name
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                say("কন্ট্যাক্ট দেখার অনুমতি নেই। Voice Agent অ্যাপ খুলে ধাপ এক এর বাটনে চাপ দিন।");
+                return true;
+            }
+            ContactMatcher.Match m = ContactMatcher.find(this, name);
+            if (m == null && name.contains(" ")) {
+                // "ওমর ভাই" → try the first word
+                m = ContactMatcher.find(this, name.substring(0, name.indexOf(' ')));
+            }
+            if (m != null) { say(m.name + " কে কল করছি"); callNumber(m.number); return true; }
+            say(name + " নামে কোনো কন্ট্যাক্ট খুঁজে পেলাম না।");
+            return true;
         }
 
         // Open an app: "ইউটিউব খোলো", "open youtube"
@@ -562,9 +571,12 @@ public class AgentService extends AccessibilityService {
             else if (e.code == 400 || e.code == 401 || e.code == 403) msg = "Gemini API key বা সেটিংসে সমস্যা আছে। অ্যাপ খুলে key টা দেখে নিন।";
             else if (e.code == 404) msg = "মডেলের নামটা ঠিক নেই। অ্যাপ খুলে 'মডেল তালিকা' থেকে একটা বেছে নিন।";
             else msg = "Gemini থেকে উত্তর পাইনি। আবার চেষ্টা করুন।";
+            // Show the real reason on screen so problems can be diagnosed.
+            toast("Gemini error " + e.code + " — " + Gemini.shortReason(e));
             main.post(() -> finishTask(myTask, command, msg));
             return;
         } catch (Exception e) {
+            toast("সংযোগ সমস্যা: " + e.getClass().getSimpleName() + " " + (e.getMessage() == null ? "" : e.getMessage()));
             main.post(() -> finishTask(myTask, command, "ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।"));
             return;
         }
@@ -724,7 +736,8 @@ public class AgentService extends AccessibilityService {
                     String number = a.optString("number", "").replaceAll("[^0-9+]", "");
                     String name = a.optString("name", "");
                     if (number.isEmpty() && !name.isEmpty()) {
-                        String found = findContactNumber(name);
+                        ContactMatcher.Match cm = ContactMatcher.find(this, name);
+                        String found = cm != null ? cm.number : findContactNumber(name);
                         if (found == null) {
                             // try each word separately
                             for (String part : name.split(" ")) {
